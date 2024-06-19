@@ -4,7 +4,7 @@ from FaceRecognizer import FaceRecognizer
 pipeline = FaceRecognizer(use_colors=True)
 
 # Inference
-faces = pipeline('./test_00.jpg')
+faces = pipeline('../data/test_face_recognition.jpg')
 
 # Results
 for face in faces:

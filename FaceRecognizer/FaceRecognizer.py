@@ -19,7 +19,7 @@ class Face:
     """
     
     # Static reference shape for face alignment
-    reference_3d_kpts = get_object("assets/meanshape_68.pkl")
+    reference_3d_kpts = get_object("../assets/meanshape_68.pkl")
 
     def __init__(self, face, angle_thresh: float = 45):
         self.face = face
