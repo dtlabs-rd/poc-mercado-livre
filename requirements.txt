@@ -2,3 +2,4 @@ insightface
 numpy
 opencv-python
 onnxruntime
+levenshtein
