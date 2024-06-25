@@ -1,6 +1,6 @@
 import sys
 sys.path.append('../')
-from face_recognizer.face_recognizer import FaceRecognizer
+import time
 import numpy as np
 import os
 import Levenshtein
@@ -18,27 +18,23 @@ class Database:
         """
         Remove register from database
         """
-        self.registers = [register for register in self.registers if register['name'] != name]        
+        self.registers = [register for register in self.registers if register['name'] != name]  
+        np.savez(self.path, **{'registers': self.registers})       
         
-    def register(self, name:str, plates:List[str], image):
+    def register(self, name:str, plates:List[str], embedding):
         """
         Add new register to database
         """
         names = [register['name'] for register in self.registers]
         assert name not in names, "Name already registered."
         
-        face_recognition_pipeline = FaceRecognizer(use_colors=True)
-        image = face_recognition_pipeline.prepare_image(image)
-        results = face_recognition_pipeline(image)
-        assert len(results) > 0, "No faces detected."
-        
         self.registers = np.append(self.registers, {
             "name": name,
             "plates": plates,
-            "embedding": results[0].embedding()
+            "embedding": embedding
         })
         
-        np.savez("database.npz", **{'registers': self.registers})  
+        np.savez(self.path, **{'registers': self.registers})  
         
     def _similarities(self, embedding:np.ndarray, vectors: List[np.ndarray]) -> np.ndarray:
         """
@@ -64,13 +60,15 @@ class Database:
         Query the database for the k most similar plates.
         """
         distances = []
+        plates = []
         for register in self.registers:
             distances_ = [Levenshtein.distance(query_plate, plate) for plate in register['plates']]
-            min_distance = np.min(distances_)
-            distances.append(min_distance)
+            min_idx = np.argmin(distances_)
+            distances.append(distances_[min_idx])
+            plates.append(register['plates'][min_idx])
             
         indices = np.argsort(distances)[:top_k]
-        results = list(zip(self.registers[indices], np.array(distances)[indices]))
+        results = list(zip(np.array(plates)[indices], np.array(distances)[indices]))
         return results
     
 
@@ -78,17 +76,17 @@ if __name__ == "__main__":
     
     database = Database('./database.npz')
     
-    # # Register
-    # database.register(
-    #     name="joao",
-    #     plates=["A3C5f34", "ABC1234"],
-    #     image="../data/test_single_face.jpg"
-    # )
-    # database.register(
-    #     name="lucas",
-    #     plates=["EFG5678"],
-    #     image="../data/test_lucas.png"
-    # )
+    # Register
+    database.register(
+        name="joao",
+        plates=["A3C5f34", "ABC1234"],
+        image="../data/test_single_face.jpg"
+    )
+    database.register(
+        name="lucas",
+        plates=["EFG5678"],
+        image="../data/test_lucas.png"
+    )
     
     # Query face
     # face_recognition_pipeline = FaceRecognizer(use_colors=True)
@@ -98,7 +96,7 @@ if __name__ == "__main__":
     #     print(result[0]['name'], result[1])
     
     # Query plate
-    query_plate = "EFG5677"
-    results = database.query_plate(query_plate, 1)
-    for result in results:
-        print(result[0]['plates'], result[1])
+    # query_plate = "EFG5677"
+    # results = database.query_plate(query_plate, 1)
+    # for result in results:
+    #     print(result[0]['plates'], result[1])

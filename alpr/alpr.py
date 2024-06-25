@@ -1,9 +1,8 @@
 import numpy as np
 import cv2
 import string
-from ocr import OCR
-from object_detection import YoloV5Detector
-from alpr import alpr   
+from .ocr import OCR
+from .object_detection import YoloV5Detector
 
 Image = np.ndarray
 
@@ -44,7 +43,7 @@ class ALPR():
         predictions = self.det.run(image)
         return predictions
     
-    def _post_process_ocr(plate: str) -> str:
+    def _post_process_ocr(self, plate: str) -> str:
         # Standards:
         # A A A X X X X
         # A A A X A X X
@@ -97,17 +96,39 @@ class ALPR():
         
 if __name__ == "__main__":
     
-    alpr_pipeline = alpr(
+    # Video capture
+    cap = cv2.VideoCapture('../data/video_0_94.mp4')
+        
+    # ALPR pipeline
+    alpr_pipeline = ALPR(
         det_weights='../models/alpr_detector.onnx',
         ocr_weights='../models/alpr_ocr.onnx'
     )
     
-    img = alpr_pipeline.prepare_image('../data/test_alpr.jpg')
-    results = alpr_pipeline(img)
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    writer = cv2.VideoWriter(
+        'output_1.mp4',  
+        cv2.VideoWriter_fourcc(*'MJPG'), 
+        fps, 
+        (width, height)
+    ) 
 
-    for result in results:
-        x1, y1, x2, y2 = map(int, result['detection'][:4])
-        cv2.rectangle(img, (x1, y1), (x2, y2), color=(0,0,255))
-        cv2.putText(img, result['text'], (x1, y1), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0,0,255), thickness=1)
+    while True:
+        _, frame = cap.read()
+        
+        
+        frame = alpr_pipeline.prepare_image(frame)
+        results = alpr_pipeline(frame)
+        
+        for result in results:
+            x1, y1, x2, y2 = map(int, result['detection'][:4])
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color=(0,255,0), thickness=2)
+            cv2.putText(frame, result['text'], (x1, y1), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=(0,255,0), thickness=2)
 
-    cv2.imwrite('alpr_output.hpg', img)
+        cv2.imshow('frame', frame)
+        writer.write(frame) 
+            
+        if cv2.waitKey(1) & 0xFF == ord('q'): 
+            break

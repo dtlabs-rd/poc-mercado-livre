@@ -52,7 +52,7 @@ class FaceRecognizer:
 
     def __init__(
         self,
-        use_colors: bool = False,
+        use_colors: bool = True,
         det_thresh: float = 0.4,
         nms_thresh: float = 0.4,
         eye_distance_thresh: float = 60,

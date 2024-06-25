@@ -74,6 +74,8 @@ class YoloV5Detector:
         pred = self.predict(image_processed)
         if pred[0] is not None:
             pred[0] = self.rescale(image, pred[0])
+        else:
+            return []
 
         # returns the bbox position tl_x, tl_y, br_x, br_y, class, conf
         return pred[0]
