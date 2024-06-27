@@ -5,10 +5,9 @@ from database.database import Database
 import base64
 import json
 import time
-import asyncio
 
 # Thresholds
-PLATE_DISTANCE_THRESHOLD = 10
+PLATE_DISTANCE_THRESHOLD = 2
 FACE_SIMILARITY_THRESHOLD = 0.5
 
 # Streams
@@ -28,15 +27,15 @@ alpr_pipeline = ALPR(
 face_recognition_pipeline = FaceRecognizer()
 
 while True:
-    results = {}
     
-    time.sleep(1/30)
+    start = time.time()
+    results = {}
     
     # Read frame from streams
     timestamp = time.time()
     _, alpr_frame = alpr_stream.read()
     _, face_recognition_frame = face_recognition_stream.read()
-    
+        
     # Run ALPR pipeline
     alpr_result = alpr_pipeline(alpr_frame)
     
@@ -71,9 +70,16 @@ while True:
                     results["name"] = person['name']
                     results["face_bbox"] = face_recognition_result[0].face['bbox'].tolist()
                     results["face_kpts"] = face_recognition_result[0].face['kps'].tolist()
-    
-    results["alpr_frame"] =  base64.b64encode(cv2.imencode('.jpg', alpr_frame)[1].tobytes()).decode('utf-8')
-    results["face_recognition_frame"] = base64.b64encode(cv2.imencode('.jpg', face_recognition_frame)[1].tobytes()).decode('utf-8')
-    
-    with open(f"./results/{timestamp}.json", "w") as fp:
+            
+    results["alpr_frame"] =  base64.b64encode(
+        cv2.imencode('.jpg', alpr_frame)[1].tobytes()
+    ).decode('utf-8')
+    results["face_recognition_frame"] = base64.b64encode(
+        cv2.imencode('.jpg', face_recognition_frame)[1].tobytes()
+    ).decode('utf-8')
+        
+    with open(f"./results/{int(timestamp*1000)}.json", "w") as fp:
         json.dump(results, fp)
+        
+    end = time.time()
+    time.sleep(max((1/30) - (end-start), 0))
