@@ -5,3 +5,5 @@ onnxruntime
 levenshtein
 pika
 python-dotenv
+filterpy
+shapely

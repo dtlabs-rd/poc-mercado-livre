@@ -1,20 +1,13 @@
 import cv2
 from alpr.alpr import ALPR
-# from face_recognizer.face_recognizer import FaceRecognizer
-# from database.database import Database
 from rabbitmq import RabbitMQ, Config
 import base64
 import json
 import time
+from collections import deque
+from threading import Thread, Lock
 from dotenv import load_dotenv
 load_dotenv()
-
-# # Thresholds
-# PLATE_DISTANCE_THRESHOLD = 2
-# FACE_SIMILARITY_THRESHOLD = 0.5
-
-# # Database
-# database = Database("./database.npz")
 
 # RabbitMQ settings
 RABBITMQ_EXCHANGE = "poc-meli"
@@ -39,85 +32,85 @@ channel.queue_bind(
 )
 
 # Streams
-alpr_stream = cv2.VideoCapture("./data/output_2024-07-10_11-27-07.mp4")
-# face_recognition_stream = cv2.VideoCapture(1)
+alpr_frame_lock = Lock()
+alpr_frame = None
+def read_alpr_stream():
+    global alpr_frame
+    alpr_stream = cv2.VideoCapture("./data/output_2024-07-10_11-27-07.mp4")
+    while True:
+        time.sleep(1/10)
+        _, frame = alpr_stream.read()
+        if frame is not None:
+            with alpr_frame_lock:
+                alpr_frame = frame
+        
+read_stream_thread = Thread(target=read_alpr_stream)
+read_stream_thread.daemon = True
+read_stream_thread.start()
 
 # ALPR pipeline
 alpr_pipeline = ALPR(
     det_weights="./models/alpr_detector.onnx",
-    ocr_weights="./models/alpr_ocr.onnx"
+    ocr_weights="./models/alpr_ocr.onnx",
+    use_tracker=True
 )
 
-# Face Recognition pipeline
-# face_recognition_pipeline = FaceRecognizer()
+# Queue to store last plates
+queue = deque(maxlen=15)
+last_id = -1
+temp_id = -1
 
-last_publish = 0
 while True:
-    
     start = time.time()
     results = {}
     
-    # Read frame from streams
-    timestamp = time.time()
-    _, alpr_frame = alpr_stream.read()
-    # _, face_recognition_frame = face_recognition_stream.read()
+    # Get frames
+    with alpr_frame_lock:
+        if alpr_frame is not None:
+            alpr_frame_copy = alpr_frame.copy()
+        else:
+            continue
         
     # Run ALPR pipeline
-    alpr_result = alpr_pipeline(alpr_frame)
+    alpr_results = alpr_pipeline(alpr_frame)
     
-    if len(alpr_result) > 0:
+    for alpr_result in alpr_results:   
         
-        results["plate"] = alpr_result[0]['text']
-        plate_bbox = alpr_result[0]['detection'].tolist()
+        if len(alpr_result['text']) != 7:
+            continue
+        
+        if alpr_result['id'] > last_id:
+            temp_id = max(temp_id, alpr_result['id'])
+            queue.append({
+                "plate": alpr_result['text'],
+                "timestamp": int(start*1000)
+            })
         
         # Draw ALPR results
-        x1, y1, x2, y2 = map(int, plate_bbox[:4])
-        cv2.rectangle(alpr_frame, (x1, y1), (x2, y2), color=(0,255,0), thickness=2)
-        cv2.putText(alpr_frame, results["plate"], (x1, y1), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=(0,255,0), thickness=2)
-        
-    #     # Search for plate in database
-    #     plate, levenshtein_distance = database.query_plate(
-    #         query_plate=alpr_result[0]['text'], 
-    #         top_k=1
-    #     )[0]
-        
-    #     # Apply plate levenshtein distance threshold
-    #     if levenshtein_distance < PLATE_DISTANCE_THRESHOLD:
-            
-    #         results["plate_text"] = plate
-    #         results["plate_bbox"] = alpr_result[0]['detection'].tolist()
-            
-    #         # Run Face Recognition pipeline
-    #         face_recognition_result = face_recognition_pipeline(face_recognition_frame)
-            
-    #         if len(face_recognition_result) > 0:
-                
-    #             # Search for face in database
-    #             person, similarity = database.query_face(
-    #                 query_embedding=face_recognition_result[0].embedding(),
-    #                 top_k=1
-    #             )[0]
-            
-    #             # Apply face similarity threshold
-    #             if similarity > FACE_SIMILARITY_THRESHOLD:
-    #                 results["valid"] = plate in person['plates']
-    #                 results["name"] = person['name']
-    #                 results["face_bbox"] = face_recognition_result[0].face['bbox'].tolist()
-    #                 results["face_kpts"] = face_recognition_result[0].face['kps'].tolist()
-    
-    #             # Draw Face Recognition results
-    #             x1, y1, x2, y2 = map(int, results['face_bbox'][:4])
-    #             cv2.rectangle(face_recognition_frame, (x1, y1), (x2, y2), (0,255,0))
-    #             for kpt in results['face_kpts'][:2]:
-    #                 x, y = map(int, kpt)
-    #                 cv2.circle(face_recognition_frame, (x, y), 2, (0,255,0), thickness=2)
+        x1, y1, x2, y2 = map(int, alpr_result['detection'].tolist()[:4])
+        cv2.rectangle(
+            alpr_frame_copy, 
+            (x1, y1), 
+            (x2, y2), 
+            color=(0,255,0), 
+            thickness=2
+        )
+        cv2.putText(
+            alpr_frame_copy, 
+            f'ID: {alpr_result["id"]} - {alpr_result["text"]}', 
+            (x1, y1-5), 
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX, 
+            fontScale=1, 
+            color=(0,255,0), 
+            thickness=2
+        )
             
     results["alpr_frame"] =  base64.b64encode(
-        cv2.imencode('.jpg', alpr_frame)[1].tobytes()
+        cv2.imencode('.jpg', alpr_frame_copy)[1].tobytes()
     ).decode('utf-8')
-    # results["face_recognition_frame"] = base64.b64encode(
-    #     cv2.imencode('.jpg', face_recognition_frame)[1].tobytes()
-    # ).decode('utf-8')
+    
+    last_id = temp_id
+    results["history"] = list(queue)
     
     channel = rabbitmq.get_channel()
     channel.basic_publish(
@@ -125,9 +118,6 @@ while True:
         routing_key=RABBITMQ_QUEUE,
         body=json.dumps(results)
     ) 
-    
-    # with open(f"./results/{int(timestamp*1000)}.json", "w") as fp:
-    #     json.dump(results, fp)
         
     end = time.time()
     time.sleep(max((1/10) - (end-start), 0))

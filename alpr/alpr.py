@@ -3,6 +3,7 @@ import cv2
 import string
 from .ocr import OCR
 from .object_detection import YoloV5Detector
+from .sort import Tracker
 
 Image = np.ndarray
 
@@ -13,8 +14,8 @@ class ALPR():
         ocr_weights,
         det_conf_thres=0.2,
         det_iou_thres=0.2,
-        ocr_conf_thres=0.2
-        
+        ocr_conf_thres=0.2,
+        use_tracker=False
     ):
         # Load object detector
         self.det = YoloV5Detector(
@@ -27,6 +28,14 @@ class ALPR():
             ocr_weights,
             ocr_conf_thres
         )
+        # Tracker
+        self.use_tracker = use_tracker
+        if use_tracker:
+            self.tracker = Tracker(
+                max_age=10,
+                min_hits=3,
+                iou_threshold=0.2
+            )
 
     def prepare_image(self, image: Image | str) -> Image:
         """
@@ -74,8 +83,8 @@ class ALPR():
 
     def _crop(self, image, dets):
         output_image_list = list()
-        dets = np.maximum(dets, 0.0)
         for det in dets:
+            det = np.maximum(det, 0.0)
             x1, y1, x2, y2 = map(int, det[:4])
             output_image_list.append(image[y1:y2, x1:x2])
         return output_image_list
@@ -86,12 +95,26 @@ class ALPR():
         """
 
         image = self.prepare_image(image)
-        dets = self._det(image)
-        crops = self._crop(image, dets)
-        return [{
-            "text":self._ocr(crops[i]), 
-            "detection": dets[i]
-        } for i in range(len(crops))]
+        dets = np.array(self._det(image)).reshape(-1, 6)
+        
+        if self.use_tracker:
+            
+            tracklets = self.tracker.update(dets)
+            dets = [det.get_state()[0] for det in tracklets]
+            crops = self._crop(image, dets)
+            return [{
+                "text":self._ocr(crops[i]), 
+                "detection": dets[i],
+                "id": tracklets[i].id
+            } for i in range(len(dets))]
+            
+        else:
+            
+            crops = self._crop(image, dets)
+            return [{
+                "text":self._ocr(crops[i]), 
+                "detection": dets[i],
+            } for i in range(len(dets))]
         
         
 if __name__ == "__main__":
