@@ -3,3 +3,5 @@ numpy
 opencv-python
 onnxruntime
 levenshtein
+pika
+python-dotenv
