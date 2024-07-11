@@ -6,6 +6,7 @@ import json
 import time
 from collections import deque
 from threading import Thread, Lock
+import boto3
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -30,6 +31,9 @@ channel.queue_bind(
     queue=result.method.queue,
     routing_key=RABBITMQ_QUEUE
 )
+
+# S3 settings
+s3_client = boto3.client('s3')
 
 # Streams
 alpr_frame_lock = Lock()
@@ -71,8 +75,17 @@ while True:
         else:
             continue
         
+    # Resize frame by scale_factor
+    scale_factor = 0.5
+    alpr_frame_copy = cv2.resize(alpr_frame_copy, (0,0), fx=scale_factor, fy=scale_factor)
+        
     # Run ALPR pipeline
     alpr_results = alpr_pipeline(alpr_frame)
+    
+    if len(alpr_results) > 0:
+        alpr_frame_encoded =  base64.b64encode(
+            cv2.imencode('.jpg', alpr_frame_copy)[1].tobytes()
+        ).decode('utf-8')
     
     for alpr_result in alpr_results:   
         
@@ -87,7 +100,7 @@ while True:
             })
         
         # Draw ALPR results
-        x1, y1, x2, y2 = map(int, alpr_result['detection'].tolist()[:4])
+        x1, y1, x2, y2 = map(lambda x: int(x*scale_factor), alpr_result['detection'].tolist()[:4])
         cv2.rectangle(
             alpr_frame_copy, 
             (x1, y1), 
@@ -104,6 +117,17 @@ while True:
             color=(0,255,0), 
             thickness=2
         )
+        
+        # Save in S3 Bucket
+        s3_json = {
+            "plate": alpr_result["text"],
+            "image": alpr_frame_encoded
+        }
+        s3_client.put_object(
+            Key=f"{int(time.time()*1000)}.json",
+            Body=json.dumps(s3_json),
+            Bucket='poc-meli'
+        )
             
     results["alpr_frame"] =  base64.b64encode(
         cv2.imencode('.jpg', alpr_frame_copy)[1].tobytes()
@@ -112,6 +136,7 @@ while True:
     last_id = temp_id
     results["history"] = list(queue)
     
+    # Publish to RABBITMQ
     channel = rabbitmq.get_channel()
     channel.basic_publish(
         RABBITMQ_EXCHANGE,

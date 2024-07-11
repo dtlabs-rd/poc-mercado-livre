@@ -7,3 +7,4 @@ pika
 python-dotenv
 filterpy
 shapely
+boto3
