@@ -4,6 +4,7 @@ from rabbitmq import RabbitMQ, Config
 import base64
 import json
 import time
+from datetime import datetime
 from collections import deque
 from threading import Thread, Lock
 import boto3
@@ -119,12 +120,14 @@ while True:
         )
         
         # Save in S3 Bucket
+        now = datetime.now()
         s3_json = {
             "plate": alpr_result["text"],
-            "image": alpr_frame_encoded
+            "image": alpr_frame_encoded,
+            "timestamp": int(now.timestamp()*1000)
         }
         s3_client.put_object(
-            Key=f"{int(time.time()*1000)}.json",
+            Key=f"{now.strftime('%d-%m-%Y')}/{s3_json['timestamp']}.json",
             Body=json.dumps(s3_json),
             Bucket='poc-meli'
         )
