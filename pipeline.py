@@ -111,7 +111,7 @@ while True:
         )
         cv2.putText(
             alpr_frame_copy, 
-            f'ID: {alpr_result["id"]} - {alpr_result["text"]}', 
+            f'{alpr_result["text"]}', 
             (x1, y1-5), 
             fontFace=cv2.FONT_HERSHEY_SIMPLEX, 
             fontScale=1, 
